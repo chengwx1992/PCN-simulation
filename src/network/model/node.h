@@ -197,7 +197,7 @@ public:
 
   //yibo
   Ptr<BroadcomNode> m_broadcom;
-  void SetNodeType(uint32_t type, bool dynamicth);
+  void SetNodeType(uint32_t type, bool dynamicth, uint32_t threshold);
   void SetNodeType(uint32_t type);
   uint32_t GetNodeType();
   

@@ -53,7 +53,7 @@ namespace ns3 {
 
 	BroadcomNode::BroadcomNode()
 	{
-		m_maxBufferBytes = 9000000; //9MB
+		m_maxBufferBytes = 24000000; //24MB
 		m_usedTotalBytes = 0;
 
 		for (uint32_t i = 0; i < pCnt; i++)
@@ -75,7 +75,7 @@ namespace ns3 {
 			m_usedEgressSPBytes[i] = 0;
 		}
 		//ingress params
-		m_buffer_cell_limit_sp = 4000 * 1030; //ingress sp buffer threshold
+		m_buffer_cell_limit_sp = 12000 * 1020; //ingress sp buffer threshold
 		//m_buffer_cell_limit_sp_shared=4000*1030; //ingress sp buffer shared threshold, nonshare -> share
 		m_pg_min_cell = 1030; //ingress pg guarantee
 		m_port_min_cell = 1030; //ingress port guarantee
@@ -408,6 +408,12 @@ namespace ns3 {
 		return m_usedTotalBytes;
 	}
 
+	uint32_t
+		BroadcomNode::GetUsedIngressPGBytes(uint32_t port, uint32_t i)
+	{
+		return m_usedIngressPGBytes[port][i];
+	}
+
 	void
 		BroadcomNode::SetDynamicThreshold()
 	{
@@ -417,6 +423,15 @@ namespace ns3 {
 		return;
 	}
 
+	void
+		BroadcomNode::SetStaticThreshold(uint32_t t)
+	{
+		m_dynamicth = false;
+		m_pg_shared_limit_cell = t;	//using static threshold
+		m_pg_shared_limit_cell_off = m_pg_shared_limit_cell - 2 * 1030;
+		m_port_max_shared_cell = m_maxBufferBytes;
+		return;
+	}
 	void
 		BroadcomNode::SetMarkingThreshold(uint32_t kmin, uint32_t kmax, double pmax)
 	{

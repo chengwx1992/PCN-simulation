@@ -43,7 +43,7 @@ class QbbNetDevice : public PointToPointNetDevice
 public:
   static const uint32_t qCnt = 8;	// Number of queues/priorities used
   static const uint32_t pCnt = 64;	// Number of ports used
-  static const uint32_t fCnt = 128; // Max number of flows on a NIC, for TX and RX respectively. TX+RX=fCnt*2
+  static const uint32_t fCnt = 12800; // Max number of flows on a NIC, for TX and RX respectively. TX+RX=fCnt*2
   static const uint32_t maxHop = 1; // Max hop count in the network. should not exceed 16 
 
   static TypeId GetTypeId (void);
@@ -324,6 +324,7 @@ protected:
   EventId m_retransmit[fCnt];
   bool m_waitingAck[fCnt];
 
+  uint32_t print_time;
 };
 
 } // namespace ns3

@@ -123,6 +123,7 @@ namespace ns3 {
 			m_rrlast = qIndex;
 			NS_LOG_LOGIC("Popped " << p);
 			NS_LOG_LOGIC("Number bytes " << m_bytesInQueueTotal);
+			m_qlast = qIndex;
 			return p;
 		}
 		NS_LOG_LOGIC("Nothing can be sent");

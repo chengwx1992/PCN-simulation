@@ -439,7 +439,7 @@ Node::NotifyDeviceAdded (Ptr<NetDevice> device)
 
 //yibo
 void 
-Node::SetNodeType(uint32_t type, bool dynamicth)
+Node::SetNodeType(uint32_t type, bool dynamicth, uint32_t threshold)
 {
 	m_node_type = type;
 	if (type==1)
@@ -448,6 +448,10 @@ Node::SetNodeType(uint32_t type, bool dynamicth)
 		if (dynamicth)
 		{
 			m_broadcom->SetDynamicThreshold();
+		}
+		else
+		{
+			m_broadcom->SetStaticThreshold(threshold);
 		}
 	}
 }

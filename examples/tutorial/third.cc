@@ -47,7 +47,7 @@ std::string rate_ai, rate_hai;
 
 bool clamp_target_rate = false, clamp_target_rate_after_timer = false, send_in_chunks = true, l2_wait_for_ack = false, l2_back_to_zero = false, l2_test_read = false;
 double error_rate_per_link = 0.0;
-
+uint32_t pfc_threshold = 64;
 
 
 int main(int argc, char *argv[])
@@ -370,6 +370,13 @@ int main(int argc, char *argv[])
 				error_rate_per_link = v;
 				std::cout << "ERROR_RATE_PER_LINK\t\t" << error_rate_per_link << "\n";
 			}
+			else if (key.compare("PFC_THRESHOLD") == 0)
+			{
+				double v;
+				conf >> v;
+				pfc_threshold = v;
+				std::cout << "PFC_THRESHOLD\t\t" << pfc_threshold << "\n";
+			}
 			fflush(stdout);
 		}
 		conf.close();
@@ -383,6 +390,7 @@ int main(int argc, char *argv[])
 
 
 	bool dynamicth = use_dynamic_pfc_threshold;
+	pfc_threshold = pfc_threshold * 1020;
 
 	NS_ASSERT(packet_level_ecmp + flow_level_ecmp < 2); //packet level ecmp and flow level ecmp are exclusive
 	Config::SetDefault("ns3::Ipv4GlobalRouting::RandomEcmpRouting", BooleanValue(packet_level_ecmp));
@@ -427,7 +435,7 @@ int main(int argc, char *argv[])
 	{
 		uint32_t sid;
 		topof >> sid;
-		n.Get(sid)->SetNodeType(1, dynamicth); //broadcom switch
+		n.Get(sid)->SetNodeType(1, dynamicth, pfc_threshold); //broadcom switch
 		n.Get(sid)->m_broadcom->SetMarkingThreshold(kmin, kmax, pmax);
 	}
 
@@ -533,6 +541,8 @@ int main(int argc, char *argv[])
 		else
 		{
 			UdpServerHelper server0(port);
+			server0.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+			server0.SetAttribute("FlowStartTime", DoubleValue(start_time));
 			ApplicationContainer apps0s = server0.Install(n.Get(dst));
 			apps0s.Start(Seconds(app_start_time));
 			apps0s.Stop(Seconds(app_stop_time));

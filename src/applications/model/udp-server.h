@@ -95,6 +95,9 @@ private:
   Address m_peerAddress;
   uint16_t m_peerPort;
 
+  uint32_t m_count;
+  uint32_t m_report;
+  double flow_start_time;
 };
 
 } // namespace ns3

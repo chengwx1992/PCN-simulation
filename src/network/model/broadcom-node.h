@@ -106,9 +106,10 @@ namespace ns3 {
 		bool ShouldSendCN(uint32_t indev, uint32_t ifindex, uint32_t qIndex);
 
 		uint32_t GetUsedBufferTotal();
+		uint32_t GetUsedIngressPGBytes(uint32_t port, uint32_t i);
 
 		void SetDynamicThreshold();
-
+		void SetStaticThreshold(uint32_t t);
 	protected:
 		uint32_t GetIngressSP(uint32_t port, uint32_t pgIndex);
 		uint32_t GetEgressSP(uint32_t port, uint32_t qIndex);

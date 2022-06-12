@@ -29,6 +29,7 @@
 #include "ns3/socket-factory.h"
 #include "ns3/packet.h"
 #include "ns3/uinteger.h"
+#include "ns3/double.h"
 #include "packet-loss-counter.h"
 
 #include "ns3/seq-ts-header.h"
@@ -57,6 +58,16 @@ UdpServer::GetTypeId (void)
                    MakeUintegerAccessor (&UdpServer::GetPacketWindowSize,
                                          &UdpServer::SetPacketWindowSize),
                    MakeUintegerChecker<uint16_t> (8,256))
+			.AddAttribute("MaxPackets",
+				"The maximum number of packets the application will send",
+				UintegerValue(100),
+				MakeUintegerAccessor(&UdpServer::m_count),
+				MakeUintegerChecker<uint32_t>())
+			.AddAttribute("FlowStartTime",
+				"The start time of the flow",
+				DoubleValue(0),
+				MakeDoubleAccessor(&UdpServer::flow_start_time),
+				MakeDoubleChecker<double>())
   ;
   return tid;
 }
@@ -66,6 +77,7 @@ UdpServer::UdpServer ()
 {
   NS_LOG_FUNCTION (this);
   m_received=0;
+  m_report = 10;
 }
 
 UdpServer::~UdpServer ()
@@ -154,35 +166,48 @@ UdpServer::HandleRead (Ptr<Socket> socket)
   Address from;
   while ((packet = socket->RecvFrom (from)))
     {
-      if (packet->GetSize () > 0)
-        {
-          SeqTsHeader seqTs;
-          packet->RemoveHeader (seqTs);
-          uint32_t currentSequenceNumber = seqTs.GetSeq ();
-          if (InetSocketAddress::IsMatchingType (from))
-            {
-              NS_LOG_INFO ("TraceDelay: RX " << packet->GetSize () <<
-                           " bytes from "<< InetSocketAddress::ConvertFrom (from).GetIpv4 () <<
-                           " Sequence Number: " << currentSequenceNumber <<
-                           " Uid: " << packet->GetUid () <<
-                           " TXtime: " << seqTs.GetTs () <<
-                           " RXtime: " << Simulator::Now () <<
-                           " Delay: " << Simulator::Now () - seqTs.GetTs ());
-            }
-          else if (Inet6SocketAddress::IsMatchingType (from))
-            {
-              NS_LOG_INFO ("TraceDelay: RX " << packet->GetSize () <<
-                           " bytes from "<< Inet6SocketAddress::ConvertFrom (from).GetIpv6 () <<
-                           " Sequence Number: " << currentSequenceNumber <<
-                           " Uid: " << packet->GetUid () <<
-                           " TXtime: " << seqTs.GetTs () <<
-                           " RXtime: " << Simulator::Now () <<
-                           " Delay: " << Simulator::Now () - seqTs.GetTs ());
-            }
+	  if (packet->GetSize() > 0)
+	  {
+		  SeqTsHeader seqTs;
+		  packet->RemoveHeader(seqTs);
+		  uint32_t currentSequenceNumber = seqTs.GetSeq();
+		  if (InetSocketAddress::IsMatchingType(from))
+		  {
+			  NS_LOG_INFO("TraceDelay: RX " << packet->GetSize() <<
+				  " bytes from " << InetSocketAddress::ConvertFrom(from).GetIpv4() <<
+				  " Sequence Number: " << currentSequenceNumber <<
+				  " Uid: " << packet->GetUid() <<
+				  " TXtime: " << seqTs.GetTs() <<
+				  " RXtime: " << Simulator::Now() <<
+				  " Delay: " << Simulator::Now() - seqTs.GetTs());
+		  }
+		  else if (Inet6SocketAddress::IsMatchingType(from))
+		  {
+			  NS_LOG_INFO("TraceDelay: RX " << packet->GetSize() <<
+				  " bytes from " << Inet6SocketAddress::ConvertFrom(from).GetIpv6() <<
+				  " Sequence Number: " << currentSequenceNumber <<
+				  " Uid: " << packet->GetUid() <<
+				  " TXtime: " << seqTs.GetTs() <<
+				  " RXtime: " << Simulator::Now() <<
+				  " Delay: " << Simulator::Now() - seqTs.GetTs());
+		  }
 
-          m_lossCounter.NotifyReceived (currentSequenceNumber);
-          m_received++;
-        }
+		  m_lossCounter.NotifyReceived(currentSequenceNumber);
+		  m_received++;
+		  /*if (m_received == m_report)
+		  {
+			  m_report *= 10;
+			  double now = Simulator::Now().GetSeconds();
+			  std::cout << "Received " << m_received << " StartTime " << flow_start_time
+				  << " EndTime " << now << " CompleteTime " << (now - flow_start_time) * 1000 * 1000 << "\n";
+		  }*/
+		  if (m_received == m_count)
+		  {
+			  double now = Simulator::Now().GetSeconds();
+			  std::cout << now << " Flowsize " << m_count << " CompleteTime " << (now - flow_start_time) * 1000 * 1000  \
+				  << " From " << InetSocketAddress::ConvertFrom(from).GetIpv4() << " to " << m_node->GetId() << "\n";
+		  }
+	  }
 	  /*
 	  if (m_received>4000)
 	  {
