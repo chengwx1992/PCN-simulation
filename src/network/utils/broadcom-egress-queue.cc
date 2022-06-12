@@ -123,7 +123,7 @@ namespace ns3 {
 			m_rrlast = qIndex;
 			NS_LOG_LOGIC("Popped " << p);
 			NS_LOG_LOGIC("Number bytes " << m_bytesInQueueTotal);
-			m_qlast = qIndex;
+			m_qlast = qIndex; 
 			return p;
 		}
 		NS_LOG_LOGIC("Nothing can be sent");
@@ -447,11 +447,16 @@ namespace ns3 {
 	}
 
 	uint32_t
+		BEgressQueue::GetNPackets(uint32_t qIndex) const
+	{
+		return m_queues[qIndex]->GetNPackets();
+	}
+	
+	uint32_t
 		BEgressQueue::GetNBytes(uint32_t qIndex) const
 	{
 		return m_bytesInQueue[qIndex];
 	}
-
 
 	uint32_t
 		BEgressQueue::GetNBytesTotal() const

@@ -166,6 +166,7 @@ protected:
   //uint32_t m_buffersize;//< Total size of Tx buffer
   //uint32_t m_bufferUsage;	//< Occupancy at the buffer
   bool m_paused[qCnt];	//< Whether a queue paused
+  uint16_t pausedNum[qCnt];  // the top packet has just been paused
   EventId m_resumeEvt[qCnt];  //< Keeping the next resume event (PFC)
   EventId m_recheckEvt[pCnt][qCnt]; //< Keeping the next recheck queue full event (PFC)
 
@@ -250,6 +251,7 @@ protected:
 	  uint8_t ecnbits;
 	  uint16_t qfb;
 	  uint16_t total;
+	  double arrival_time, last_time;
   };
 
   std::vector<ECNAccount> *m_ecn_source;
@@ -260,7 +262,8 @@ protected:
   double m_rpgTimeReset;
   double m_alpha_resume_interval;
   //uint32_t m_fastrecover_times;
-
+  double m_weight[fCnt];
+  
   //Time m_lastpause[qCnt]; //For adding back credits..
 
   uint32_t m_findex_udpport_map[fCnt];
@@ -324,6 +327,7 @@ protected:
   EventId m_retransmit[fCnt];
   bool m_waitingAck[fCnt];
 
+  double w_min, w_max;
   uint32_t print_time;
 };
 

@@ -75,7 +75,7 @@ namespace ns3 {
 			m_usedEgressSPBytes[i] = 0;
 		}
 		//ingress params
-		m_buffer_cell_limit_sp = 12000 * 1020; //ingress sp buffer threshold
+		m_buffer_cell_limit_sp = 12000 * 1030; //ingress sp buffer threshold
 		//m_buffer_cell_limit_sp_shared=4000*1030; //ingress sp buffer shared threshold, nonshare -> share
 		m_pg_min_cell = 1030; //ingress pg guarantee
 		m_port_min_cell = 1030; //ingress port guarantee

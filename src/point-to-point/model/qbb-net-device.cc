@@ -8,7 +8,7 @@
 *
 * This program is distributed in the hope that it will be useful,
 * but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* MERCHANTABILITY or FITNESS FOR A PARICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 *
 * You should have received a copy of the GNU General Public License
@@ -174,6 +174,16 @@ namespace ns3 {
 				DoubleValue(500.0),
 				MakeDoubleAccessor(&QbbNetDevice::m_waitAckTimer),
 				MakeDoubleChecker<double>())
+			.AddAttribute("MinWeight",
+				"Minimum value of weight",
+				DoubleValue(1.0/128),
+				MakeDoubleAccessor(&QbbNetDevice::w_min),
+				MakeDoubleChecker<double>())
+			.AddAttribute("MaxWeight",
+				"Maximum value of weight",
+				DoubleValue(1.0/4),
+				MakeDoubleAccessor(&QbbNetDevice::w_max),
+				MakeDoubleChecker<double>())
 			;
 
 		return tid;
@@ -186,11 +196,11 @@ namespace ns3 {
 		for (uint32_t i = 0; i < qCnt; i++)
 		{
 			m_paused[i] = false;
+			pausedNum[i] = 0;
 		}
 		m_qcn_np_sampling = 0;
 		for (uint32_t i = 0; i < fCnt; i++)
 		{
-			m_rate[i] = 0;
 			m_credits[i] = 0;
 			m_nextAvail[i] = Time(0);
 			m_findex_udpport_map[i] = 0;
@@ -205,6 +215,7 @@ namespace ns3 {
 				m_alpha[i][j] = 0.5;
 				m_rpStage[i][j] = 0; //not in any qcn stage
 			}
+			m_weight[i] = w_min;
 		}
 		for (uint32_t i = 0; i < pCnt; i++)
 		{
@@ -212,7 +223,6 @@ namespace ns3 {
 			m_ECNIngressCount[i] = 0;
 			m_ECNEgressCount[i] = 0;
 		}
-
 		print_time = 0;
 	}
 
@@ -295,6 +305,7 @@ namespace ns3 {
 						m_targetRate[fIndex][j] = m_bps;
 					}
 				}
+				
 				//double creditsDue = std::max(0.0, m_bps / m_rate[fIndex] * (p->GetSize() - m_credits[fIndex]));
 				double creditsDue = m_bps / m_rate[fIndex] * p->GetSize();
 				Time nextSend = m_tInterframeGap + Seconds(m_bps.CalculateTxTime(creditsDue));
@@ -305,7 +316,7 @@ namespace ns3 {
 						m_credits[i] += m_rate[i] / m_bps*creditsDue;
 				}
 				m_credits[fIndex] = 0;	//reset credits*/
-				for (uint32_t i = 0; i < 1; i++)
+				/*for (uint32_t i = 0; i < 1; i++)
 				{
 					if (m_rpStage[fIndex][i] > 0)
 						m_txBytes[fIndex][i] -= p->GetSize();
@@ -326,7 +337,7 @@ namespace ns3 {
 							rpr_hyper_byte(fIndex, i);
 						}
 					}
-				}
+				}*/
 				printf("R%d%d %d %d\n", \
 					m_node->GetId(), fIndex, Simulator::Now().GetMicroSeconds(), m_rate[fIndex].GetBitRate() / 1000 / 1000);
 				if (h.GetProtocol() == 17 && m_waitAck) //if it's udp, check wait_for_ack
@@ -372,6 +383,8 @@ namespace ns3 {
 							m_queue->GetNBytes(m_queue->GetLastQueue()) / 1020);
 						print_time = now;
 					}*/
+					//printf("PausedNum %d \n", \
+						pausedNum[m_queue->GetLastQueue()]);
 					if (m_queue->GetLastQueue() == 3)
 					{
 						printf("OutS%dQ%dP%d %d\n", \
@@ -384,13 +397,14 @@ namespace ns3 {
 						PppHeader ppp;
 						p->RemoveHeader(ppp);
 						p->RemoveHeader(h);
-						bool egressCongested = ShouldSendCN(inDev, m_ifIndex, m_queue->GetLastQueue());
-						if (egressCongested)
+						uint16_t qindex = m_queue->GetLastQueue();
+						if (m_queue->GetNBytes(qindex) > 0 && pausedNum[qindex] == 0)
 						{
 							h.SetEcn((Ipv4Header::EcnType)0x03);
 						}
 						p->AddHeader(h);
 						p->AddHeader(ppp);
+						pausedNum[qindex] = std::max(0, pausedNum[qindex] - 1);
 					}
 					p->RemovePacketTag(t);
 					TransmitStart(p);
@@ -441,6 +455,7 @@ namespace ns3 {
 		NS_LOG_FUNCTION(this << qIndex);
 		NS_ASSERT_MSG(m_paused[qIndex], "Must be PAUSEd");
 		m_paused[qIndex] = false;
+		pausedNum[qIndex] = m_queue->GetNPackets(qIndex);
 		NS_LOG_INFO("Node " << m_node->GetId() << " dev " << m_ifIndex << " queue " << qIndex <<
 			" resumed at " << Simulator::Now().GetSeconds());
 		DequeueAndTransmit();
@@ -508,6 +523,19 @@ namespace ns3 {
 									(*m_ecn_source)[i].qfb++;
 								}
 								(*m_ecn_source)[i].total++;
+								double new_at = Simulator::Now().GetDouble() - (*m_ecn_source)[i].last_time;
+								double w = 0.5;
+								if (new_at < 10000000)
+								{
+									(*m_ecn_source)[i].arrival_time = (*m_ecn_source)[i].arrival_time * w + new_at * (1 - w);
+								}
+								else
+								{
+									(*m_ecn_source)[i].arrival_time = m_qcn_interval * 1000;
+								}
+								//(*m_ecn_source)[i].arrival_time = (new_at > 10000000) ? m_qcn_interval * 1000 : new_at;
+
+								(*m_ecn_source)[i].last_time = Simulator::Now().GetDouble();
 								key = i;
 							}
 						}
@@ -528,13 +556,17 @@ namespace ns3 {
 							}
 							tmp.total = 1;
 							tmp.port = udph.GetSourcePort();
+							tmp.arrival_time = m_qcn_interval * 1000;
+							tmp.last_time = Simulator::Now().GetDouble();
+
 							ReceiverNextExpectedSeq[m_ecn_source->size()] = 0;
 							m_nackTimer[m_ecn_source->size()] = Time(0);
 							m_milestone_rx[m_ecn_source->size()] = m_ack_interval;
 							m_lastNACK[m_ecn_source->size()] = -1;
 							key = m_ecn_source->size();
 							m_ecn_source->push_back(tmp);
-							CheckandSendQCN(tmp.source, tmp.qIndex, tmp.port);
+							Simulator::Schedule(MicroSeconds(m_qcn_interval), &QbbNetDevice::CheckandSendQCN, this, tmp.source, tmp.qIndex, tmp.port);
+							//CheckandSendQCN(tmp.source, tmp.qIndex, tmp.port);
 						}
 
 						int x = ReceiverCheckSeq(sth.GetSeq(), key);
@@ -639,11 +671,6 @@ namespace ns3 {
 			if (i == m_queue->m_fcount)
 				std::cout << "ERROR: QCN NIC cannot find the flow\n";
 
-			if (qfb == 0)
-			{
-				std::cout << "ERROR: Unuseful QCN\n";
-				return;	// Unuseful CN
-			}
 			if (m_rate[i] == 0)			//lazy initialization	
 			{
 				m_rate[i] = m_bps;
@@ -653,13 +680,23 @@ namespace ns3 {
 					m_targetRate[i][j] = m_bps;	//targetrate remembers the last rate
 				}
 			}
-			if (ecnbits == 0x03)
+			
+			double cur_rate = m_rate[i].GetBitRate() / 1000 / 1000; // Mbps
+			double fb_rate = qfb; //Mbps
+			double ratio = fb_rate / cur_rate;
+			if (total > 0)
 			{
-				rpr_cnm_received(i, 0, qfb*1.0 / (total + 1));
+				if (ecnbits)
+				{
+					m_rate[i] = m_rate[i] * std::min(1.0, ratio * (1 - w_min));
+					m_weight[i] = w_min;
+				}
+				else
+				{
+					m_rate[i] = m_rate[i] * (1 - m_weight[i]) + m_bps * m_weight[i];
+					m_weight[i] = m_weight[i] * (1 - m_weight[i]) + w_max * m_weight[i];
+				}
 			}
-			m_rate[i] = m_bps;
-			for (uint32_t j = 0; j < maxHop; j++)
-				m_rate[i] = std::min(m_rate[i], m_rateAll[i][j]);
 			PointToPointReceive(packet);
 		}
 
@@ -1134,7 +1171,8 @@ namespace ns3 {
 	bool
 		QbbNetDevice::ShouldSendCN(uint32_t indev, uint32_t ifindex, uint32_t qIndex)
 	{
-		return m_node->m_broadcom->ShouldSendCN(indev, ifindex, qIndex);
+		//return m_node->m_broadcom->ShouldSendCN(indev, ifindex, qIndex);
+		return (m_queue->GetNBytes(qIndex) > 0 && pausedNum[qIndex] == 0);
 	}
 
 	void
@@ -1149,10 +1187,17 @@ namespace ns3 {
 			ECNAccount info = (*m_ecn_source)[i];
 			if (info.source == source && info.qIndex == qIndex && info.port == port)
 			{
-				if (info.ecnbits == 0x03)
+				if (info.total > 0)
 				{
 					Ptr<Packet> p = Create<Packet>(0);
-					CnHeader cn(port, qIndex, info.ecnbits, info.qfb, info.total);	// Prepare CN header
+					uint16_t rec_rate = 0;
+					if (info.total == 1)
+						rec_rate = uint16_t(1020 * 8.0 / (info.arrival_time / 1000));
+					else
+						rec_rate = uint16_t(info.total * 1020 * 8.0 / m_qcn_interval);
+					//printf("Time=%d at=%f Rec_Rate=%d\n", Simulator::Now().GetMicroSeconds(), info.arrival_time, rec_rate);
+					info.ecnbits = info.qfb < info.total * 0.95 ? 0 : 1;
+					CnHeader cn(port, qIndex, info.ecnbits, rec_rate, info.total);	// Prepare CN header
 					p->AddHeader(cn);
 					Ipv4Header head;	// Prepare IPv4 header
 					head.SetDestination(source);
@@ -1172,17 +1217,9 @@ namespace ns3 {
 					((*m_ecn_source)[i]).ecnbits = 0;
 					((*m_ecn_source)[i]).qfb = 0;
 					((*m_ecn_source)[i]).total = 0;
-					DequeueAndTransmit();
-					Simulator::Schedule(MicroSeconds(m_qcn_interval), &QbbNetDevice::CheckandSendQCN, this, source, qIndex, port);
-
+					DequeueAndTransmit();					
 				}
-				else
-				{
-					((*m_ecn_source)[i]).ecnbits = 0;
-					((*m_ecn_source)[i]).qfb = 0;
-					((*m_ecn_source)[i]).total = 0;
-					Simulator::Schedule(MicroSeconds(m_qcn_interval), &QbbNetDevice::CheckandSendQCN, this, source, qIndex, port);
-				}
+				Simulator::Schedule(MicroSeconds(m_qcn_interval), &QbbNetDevice::CheckandSendQCN, this, source, qIndex, port);
 				break;
 			}
 			else

@@ -47,6 +47,7 @@ std::string rate_ai, rate_hai;
 
 bool clamp_target_rate = false, clamp_target_rate_after_timer = false, send_in_chunks = true, l2_wait_for_ack = false, l2_back_to_zero = false, l2_test_read = false;
 double error_rate_per_link = 0.0;
+double w_min = 1.0 / 128, w_max = 1.0 / 4;
 uint32_t pfc_threshold = 64;
 
 
@@ -377,6 +378,20 @@ int main(int argc, char *argv[])
 				pfc_threshold = v;
 				std::cout << "PFC_THRESHOLD\t\t" << pfc_threshold << "\n";
 			}
+			else if (key.compare("MIN_WEIGHT") == 0)
+			{
+				double v;
+				conf >> v;
+				w_min = pow(2, -1 * v);
+				std::cout << "MIN_WEIGHT\t\t" << w_min << "\n";
+			}
+			else if (key.compare("MAX_WEIGHT") == 0)
+			{
+				double v;
+				conf >> v;
+				w_max = pow(2, -1*v);
+				std::cout << "MAX_WEIGHT\t\t" << w_max << "\n";
+			}
 			fflush(stdout);
 		}
 		conf.close();
@@ -414,6 +429,8 @@ int main(int argc, char *argv[])
 	Config::SetDefault("ns3::QbbNetDevice::L2ChunkSize", UintegerValue(l2_chunk_size));
 	Config::SetDefault("ns3::QbbNetDevice::L2AckInterval", UintegerValue(l2_ack_interval));
 	Config::SetDefault("ns3::QbbNetDevice::L2WaitForAck", BooleanValue(l2_wait_for_ack));
+	Config::SetDefault("ns3::QbbNetDevice::MinWeight", DoubleValue(w_min));
+	Config::SetDefault("ns3::QbbNetDevice::MaxWeight", DoubleValue(w_max));
 
 	SeedManager::SetSeed(time(NULL));
 
@@ -527,6 +544,8 @@ int main(int argc, char *argv[])
 		if (send_in_chunks)
 		{
 			UdpEchoServerHelper server0(port, pg); //Add Priority
+			server0.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+			server0.SetAttribute("FlowStartTime", DoubleValue(start_time));
 			ApplicationContainer apps0s = server0.Install(n.Get(dst));
 			apps0s.Start(Seconds(app_start_time));
 			apps0s.Stop(Seconds(app_stop_time));

@@ -44,6 +44,7 @@ namespace ns3 {
 		Ptr<Packet> DequeueRR(bool paused[]);
 		Ptr<Packet> DequeueNIC(bool paused[]);//QCN disable NIC
 		Ptr<Packet> DequeueQCN(bool paused[], Time avail[], uint32_t m_findex_qindex_map[]);//QCN enable NIC
+		uint32_t GetNPackets(uint32_t qIndex) const;
 		uint32_t GetNBytes(uint32_t qIndex) const;
 		uint32_t GetNBytesTotal() const;
 		uint32_t GetLastQueue();
