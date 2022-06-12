@@ -30,6 +30,7 @@
 #include "ns3/broadcom-node.h"
 #include "ns3/packet.h"
 #include "ns3/error-model.h"
+#include "ns3/qbb-net-device.h";
 
 using namespace ns3;
 
@@ -515,7 +516,7 @@ int main(int argc, char *argv[])
 	for (uint32_t i = 0; i < flow_num; i++)
 	{
 		uint32_t src, dst, pg, maxPacketCount, port;
-		double start_time, stop_time;
+		double start_time, stop_time, initial_rate_gbps;
 		while (used_port[port = int(UniformVariable(0, 1).GetValue() * 40000)])
 			continue;
 		used_port[port] = true;
@@ -524,7 +525,23 @@ int main(int argc, char *argv[])
 		Ptr<Ipv4> ipv4 = n.Get(dst)->GetObject<Ipv4>();
 		Ipv4Address serverAddress = ipv4->GetAddress(1, 0).GetLocal(); //GetAddress(0,0) is the loopback 127.0.0.1
 
-		if (send_in_chunks)
+		TimelyReceiverHelper server0(port, pg);
+		server0.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+		server0.SetAttribute("FlowStartTime", DoubleValue(start_time));
+		ApplicationContainer apps0s = server0.Install(n.Get(dst));
+		apps0s.Start(Seconds(app_start_time));
+		apps0s.Stop(Seconds(app_stop_time));
+
+		initial_rate_gbps = 40;
+		TimelySenderHelper client0(serverAddress, port, pg);
+		client0.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
+		client0.SetAttribute("PacketSize", UintegerValue(packetSize));
+		client0.SetAttribute("InitialRate", DoubleValue(initial_rate_gbps * 1000 * 1000 * 1000));
+		ApplicationContainer apps0c = client0.Install(n.Get(src));
+		apps0c.Start(Seconds(start_time));
+		apps0c.Stop(Seconds(stop_time));
+		
+		/*if (send_in_chunks)
 		{
 			UdpEchoServerHelper server0(port, pg); //Add Priority
 			ApplicationContainer apps0s = server0.Install(n.Get(dst));
@@ -553,7 +570,7 @@ int main(int argc, char *argv[])
 			ApplicationContainer apps0c = client0.Install(n.Get(src));
 			apps0c.Start(Seconds(start_time));
 			apps0c.Stop(Seconds(stop_time));
-		}
+		}*/
 
 	}
 

@@ -204,8 +204,8 @@ UdpServer::HandleRead (Ptr<Socket> socket)
 		  if (m_received == m_count)
 		  {
 			  double now = Simulator::Now().GetSeconds();
-			  std::cout << now << " Flowsize " << m_count << " CompleteTime " << (now - flow_start_time) * 1000 * 1000  \
-				  << " From " << InetSocketAddress::ConvertFrom(from).GetIpv4() << " to " << m_node->GetId() << "\n";
+			  std::cout << "Flowsize " << m_count << " StartTime " << flow_start_time
+				  << " EndTime " << now << " CompleteTime " << (now - flow_start_time) * 1000 * 1000 << "\n";
 		  }
 	  }
 	  /*

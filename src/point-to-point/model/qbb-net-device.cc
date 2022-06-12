@@ -190,7 +190,6 @@ namespace ns3 {
 		m_qcn_np_sampling = 0;
 		for (uint32_t i = 0; i < fCnt; i++)
 		{
-			m_rate[i] = 0;
 			m_credits[i] = 0;
 			m_nextAvail[i] = Time(0);
 			m_findex_udpport_map[i] = 0;
@@ -212,8 +211,6 @@ namespace ns3 {
 			m_ECNIngressCount[i] = 0;
 			m_ECNEgressCount[i] = 0;
 		}
-
-		print_time = 0;
 	}
 
 	QbbNetDevice::~QbbNetDevice()
@@ -295,6 +292,7 @@ namespace ns3 {
 						m_targetRate[fIndex][j] = m_bps;
 					}
 				}
+				
 				//double creditsDue = std::max(0.0, m_bps / m_rate[fIndex] * (p->GetSize() - m_credits[fIndex]));
 				double creditsDue = m_bps / m_rate[fIndex] * p->GetSize();
 				Time nextSend = m_tInterframeGap + Seconds(m_bps.CalculateTxTime(creditsDue));
@@ -361,22 +359,12 @@ namespace ns3 {
 					//switch ECN
 					p->PeekPacketTag(t);
 					uint32_t inDev = t.GetFlowId();
-					//printf("InS%dQ%dP%d %d %d aaa ", \
+					printf("InS%dQ%dP%d %d %d aaa ", \
 						m_node->GetId(), inDev, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds(), \
 						m_node->m_broadcom->GetUsedIngressPGBytes(inDev, m_queue->GetLastQueue()) / 1020);
-					/*uint32_t now = Simulator::Now().GetMicroSeconds();
-					if (now - print_time > 100)
-					{
-						printf("OutS%dQ%dP%d %d %d\n", \
-							m_node->GetId(), m_ifIndex, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds(), \
-							m_queue->GetNBytes(m_queue->GetLastQueue()) / 1020);
-						print_time = now;
-					}*/
-					if (m_queue->GetLastQueue() == 3)
-					{
-						printf("OutS%dQ%dP%d %d\n", \
-							m_node->GetId(), m_ifIndex, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds());
-					}
+					printf("OutS%dQ%dP%d %d %d\n", \
+						m_node->GetId(), m_ifIndex, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds(), \
+						m_queue->GetNBytes(m_queue->GetLastQueue()) / 1020);
 					m_node->m_broadcom->RemoveFromIngressAdmission(inDev, m_queue->GetLastQueue(), p->GetSize());
 					m_node->m_broadcom->RemoveFromEgressAdmission(m_ifIndex, m_queue->GetLastQueue(), p->GetSize());
 					if (m_qcnEnabled)

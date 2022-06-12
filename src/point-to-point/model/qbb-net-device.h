@@ -324,7 +324,6 @@ protected:
   EventId m_retransmit[fCnt];
   bool m_waitingAck[fCnt];
 
-  uint32_t print_time;
 };
 
 } // namespace ns3
