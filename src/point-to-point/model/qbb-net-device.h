@@ -29,6 +29,7 @@
 #include "ns3/ipv4.h"
 #include "ns3/ipv4-header.h"
 #include "ns3/udp-header.h"
+#include "ns3/random-variable.h"
 #include <vector>
 #include<map>
 
@@ -323,6 +324,16 @@ protected:
   int32_t m_milestone_tx[fCnt];
   EventId m_retransmit[fCnt];
   bool m_waitingAck[fCnt];
+
+  //QCN
+  UniformVariable rng;
+  uint32_t qLen, qVar, pre_qLen;
+  //cp
+  uint32_t time_to_mark;
+  uint32_t mark_table(uint8_t qntz_fb);
+  void CheckandSendFb(uint32_t inDev, Ipv4Address source, uint32_t qIndex, uint32_t port, uint64_t ts, uint32_t qlen, uint32_t qvar);
+  void rpr_timer_expired(uint32_t findex, uint32_t hop);
+  void rpr_self_increase(uint32_t findex, uint32_t hop);
 
   uint32_t print_time;
 };

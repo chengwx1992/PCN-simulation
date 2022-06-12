@@ -44,7 +44,7 @@
 #include "ns3/ppp-header.h"
 #include "ns3/udp-header.h"
 #include "ns3/seq-ts-header.h"
-
+#include "ns3/fb-header.h"
 #include <iostream>
 
 NS_LOG_COMPONENT_DEFINE("QbbNetDevice");
@@ -190,7 +190,6 @@ namespace ns3 {
 		m_qcn_np_sampling = 0;
 		for (uint32_t i = 0; i < fCnt; i++)
 		{
-			m_rate[i] = 0;
 			m_credits[i] = 0;
 			m_nextAvail[i] = Time(0);
 			m_findex_udpport_map[i] = 0;
@@ -212,6 +211,11 @@ namespace ns3 {
 			m_ECNIngressCount[i] = 0;
 			m_ECNEgressCount[i] = 0;
 		}
+		rng = UniformVariable(0.85, 1.15);
+		qVar = 0;
+		qLen = 0;
+		pre_qLen = 0;
+		time_to_mark = mark_table(0);
 
 		print_time = 0;
 	}
@@ -295,6 +299,7 @@ namespace ns3 {
 						m_targetRate[fIndex][j] = m_bps;
 					}
 				}
+				
 				//double creditsDue = std::max(0.0, m_bps / m_rate[fIndex] * (p->GetSize() - m_credits[fIndex]));
 				double creditsDue = m_bps / m_rate[fIndex] * p->GetSize();
 				Time nextSend = m_tInterframeGap + Seconds(m_bps.CalculateTxTime(creditsDue));
@@ -307,24 +312,16 @@ namespace ns3 {
 				m_credits[fIndex] = 0;	//reset credits*/
 				for (uint32_t i = 0; i < 1; i++)
 				{
-					if (m_rpStage[fIndex][i] > 0)
-						m_txBytes[fIndex][i] -= p->GetSize();
-					else
-						m_txBytes[fIndex][i] = m_bc;
+					m_txBytes[fIndex][i] -= p->GetSize();
+
 					if (m_txBytes[fIndex][i] < 0)
 					{
-						if (m_rpStage[fIndex][i] == 1)
-						{
-							rpr_fast_byte(fIndex, i);
-						}
-						else if (m_rpStage[fIndex][i] == 2)
-						{
-							rpr_active_byte(fIndex, i);
-						}
-						else if (m_rpStage[fIndex][i] == 3)
-						{
-							rpr_hyper_byte(fIndex, i);
-						}
+						m_rpByteStage[fIndex][i]++;
+						if (m_rpByteStage[fIndex][i] < m_rpgThreshold)
+							m_txBytes[fIndex][i] = rng.GetValue(0.85, 1.15) * m_bc;
+						else
+							m_txBytes[fIndex][i] = rng.GetValue(0.85, 1.15) * m_bc / 2;
+						rpr_self_increase(fIndex, i);
 					}
 				}
 				printf("R%d%d %d %d\n", \
@@ -364,11 +361,12 @@ namespace ns3 {
 					//printf("InS%dQ%dP%d %d %d aaa ", \
 						m_node->GetId(), inDev, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds(), \
 						m_node->m_broadcom->GetUsedIngressPGBytes(inDev, m_queue->GetLastQueue()) / 1020);
+					
 					/*uint32_t now = Simulator::Now().GetMicroSeconds();
 					if (now - print_time > 100)
 					{
 						printf("OutS%dQ%dP%d %d %d\n", \
-							m_node->GetId(), m_ifIndex, m_queue->GetLastQueue(), Simulator::Now().GetMicroSeconds(), \
+							m_node->GetId(), m_ifIndex, m_queue->GetLastQueue(), now, \
 							m_queue->GetNBytes(m_queue->GetLastQueue()) / 1020);
 						print_time = now;
 					}*/
@@ -381,16 +379,37 @@ namespace ns3 {
 					m_node->m_broadcom->RemoveFromEgressAdmission(m_ifIndex, m_queue->GetLastQueue(), p->GetSize());
 					if (m_qcnEnabled)
 					{
-						PppHeader ppp;
-						p->RemoveHeader(ppp);
-						p->RemoveHeader(h);
-						bool egressCongested = ShouldSendCN(inDev, m_ifIndex, m_queue->GetLastQueue());
-						if (egressCongested)
+						time_to_mark -= p->GetSize();
+						if ((int)time_to_mark < 0)
 						{
-							h.SetEcn((Ipv4Header::EcnType)0x03);
+							qLen = m_queue->GetNBytes(m_queue->GetLastQueue());
+							qVar = qLen - pre_qLen;
+							int qvar = qVar;
+							double weight = 2.0;
+							int q0 = 40 * 1020;
+							int qOff = qLen - q0;
+							int fb = qOff + weight*qvar;
+							if (fb > q0*(2 * weight + 1))
+								fb = q0*(2 * weight + 1);
+							if (fb < 0)
+								fb = 0;
+
+							uint8_t qntz_fb = fb * 64 / (q0*(2 * weight + 1));
+							if (qntz_fb > 0)
+							{
+								// generate feedback
+								Ptr<Packet> p1 = p->Copy();
+								uint16_t protocol = 0;
+								ProcessHeader(p1, protocol);
+								Ipv4Header ipv4h;
+								p1->RemoveHeader(ipv4h);
+								UdpHeader udph;
+								p1->RemoveHeader(udph);
+								CheckandSendFb(inDev, ipv4h.GetSource(), m_queue->GetLastQueue(), udph.GetSourcePort(), qntz_fb, qLen - 40 * 1020, qVar);
+							}
+							pre_qLen = qLen;
+							time_to_mark = uint32_t(rng.GetValue(0.85, 1.15) * mark_table(qntz_fb));
 						}
-						p->AddHeader(h);
-						p->AddHeader(ppp);
 					}
 					p->RemovePacketTag(t);
 					TransmitStart(p);
@@ -534,7 +553,7 @@ namespace ns3 {
 							m_lastNACK[m_ecn_source->size()] = -1;
 							key = m_ecn_source->size();
 							m_ecn_source->push_back(tmp);
-							CheckandSendQCN(tmp.source, tmp.qIndex, tmp.port);
+							//CheckandSendQCN(tmp.source, tmp.qIndex, tmp.port);
 						}
 
 						int x = ReceiverCheckSeq(sth.GetSeq(), key);
@@ -617,18 +636,16 @@ namespace ns3 {
 			// This is a Congestion signal
 			// Then, extract data from the congestion packet.
 			// We assume, without verify, the packet is destinated to me
-			CnHeader cnHead;
-			p->RemoveHeader(cnHead);
-			uint32_t qIndex = cnHead.GetQindex();
-			if (qIndex == 1)		//DCTCP
-			{
-				std::cout << "TCP--ignore\n";
-				return;
-			}
-			uint32_t udpport = cnHead.GetFlow();
-			uint16_t ecnbits = cnHead.GetECNBits();
-			uint16_t qfb = cnHead.GetQfb();
-			uint16_t total = cnHead.GetTotal();
+			FbHeader fbHead;
+			p->RemoveHeader(fbHead);
+			uint8_t qIndex = fbHead.GetQIndex();
+			uint32_t udpport = fbHead.GetFId();
+			uint64_t ts = fbHead.GetTs();
+			uint32_t qlen = fbHead.GetQLen();
+			uint32_t qvar = fbHead.GetQVar();
+			//printf("Time=%d, Node%d recieves an ASM Fb! qIndex=%d udpport=%d ts=%d qlen=%d qvar=%d\n", \
+										Simulator::Now().GetMicroSeconds(), m_node->GetId(), qIndex, udpport, ts, qlen, qvar);
+
 
 			uint32_t i;
 			for (i = 1; i < m_queue->m_fcount; i++)
@@ -639,11 +656,6 @@ namespace ns3 {
 			if (i == m_queue->m_fcount)
 				std::cout << "ERROR: QCN NIC cannot find the flow\n";
 
-			if (qfb == 0)
-			{
-				std::cout << "ERROR: Unuseful QCN\n";
-				return;	// Unuseful CN
-			}
 			if (m_rate[i] == 0)			//lazy initialization	
 			{
 				m_rate[i] = m_bps;
@@ -653,10 +665,9 @@ namespace ns3 {
 					m_targetRate[i][j] = m_bps;	//targetrate remembers the last rate
 				}
 			}
-			if (ecnbits == 0x03)
-			{
-				rpr_cnm_received(i, 0, qfb*1.0 / (total + 1));
-			}
+
+			double fb = 1.0 - (double)ts / 128;
+			rpr_cnm_received(i, 0, fb);
 			m_rate[i] = m_bps;
 			for (uint32_t j = 0; j < maxHop; j++)
 				m_rate[i] = std::min(m_rate[i], m_rateAll[i][j]);
@@ -1337,7 +1348,7 @@ namespace ns3 {
 		QbbNetDevice::rpr_fast_time(uint32_t fIndex, uint32_t hop)
 	{
 		m_rpTimeStage[fIndex][hop]++;
-		m_rpWhile[fIndex][hop] = m_rpgTimeReset;
+		m_rpWhile[fIndex][hop] = rng.GetValue(0.85, 1.15) * m_rpgTimeReset;
 		Simulator::Cancel(m_rptimer[fIndex][hop]);
 		m_rptimer[fIndex][hop] = Simulator::Schedule(MicroSeconds(m_rpWhile[fIndex][hop]), &QbbNetDevice::rpr_timer_wrapper, this, fIndex, hop);
 		if (m_rpTimeStage[fIndex][hop] < m_rpgThreshold)
@@ -1409,37 +1420,20 @@ namespace ns3 {
 	void
 		QbbNetDevice::rpr_cnm_received(uint32_t findex, uint32_t hop, double fraction)
 	{
-		if (!m_EcnClampTgtRateAfterTimeInc && !m_EcnClampTgtRate)
-		{
-			if (m_rpByteStage[findex][hop] != 0)
-			{
-				m_targetRate[findex][hop] = m_rateAll[findex][hop];
-				m_txBytes[findex][hop] = m_bc;
-			}
-		}
-		else if (m_EcnClampTgtRate)
+		if (m_rpByteStage[findex][hop] != 0)
 		{
 			m_targetRate[findex][hop] = m_rateAll[findex][hop];
-			m_txBytes[findex][hop] = m_bc; //for fluid model, QCN standard doesn't have this.
+			m_txBytes[findex][hop] = m_bc;
 		}
-		else
-		{
-			if (m_rpByteStage[findex][hop] != 0 || m_rpTimeStage[findex][hop] != 0)
-			{
-				m_targetRate[findex][hop] = m_rateAll[findex][hop];
-				m_txBytes[findex][hop] = m_bc;
-			}
-		}
+
 		m_rpByteStage[findex][hop] = 0;
 		m_rpTimeStage[findex][hop] = 0;
-		//m_alpha[findex][hop] = (1-m_g)*m_alpha[findex][hop] + m_g*fraction;
-		m_alpha[findex][hop] = (1 - m_g)*m_alpha[findex][hop] + m_g; 	//binary feedback
-		m_rateAll[findex][hop] = std::max(m_minRate, m_rateAll[findex][hop] * (1 - m_alpha[findex][hop] / 2));
-		Simulator::Cancel(m_resumeAlpha[findex][hop]);
-		m_resumeAlpha[findex][hop] = Simulator::Schedule(MicroSeconds(m_alpha_resume_interval), &QbbNetDevice::ResumeAlpha, this, findex, hop);
-		m_rpWhile[findex][hop] = m_rpgTimeReset;
+
+		m_rateAll[findex][hop] = std::max(m_minRate, m_rateAll[findex][hop] * fraction);
+
+		m_rpWhile[findex][hop] = rng.GetValue(0.85, 1.15)*m_rpgTimeReset;;
 		Simulator::Cancel(m_rptimer[findex][hop]);
-		m_rptimer[findex][hop] = Simulator::Schedule(MicroSeconds(m_rpWhile[findex][hop]), &QbbNetDevice::rpr_timer_wrapper, this, findex, hop);
+		m_rptimer[findex][hop] = Simulator::Schedule(MicroSeconds(m_rpWhile[findex][hop]), &QbbNetDevice::rpr_timer_expired, this, findex, hop);
 		rpr_fast_recovery(findex, hop);
 	}
 
@@ -1513,6 +1507,83 @@ namespace ns3 {
 			// Duplicate. 
 			return 3;
 		}
+	}
+
+	uint32_t
+		QbbNetDevice::mark_table(uint8_t qntz_fb)
+	{
+		switch (qntz_fb / 8)
+		{
+		case 0: return 150000;
+		case 1: return 75000;
+		case 2: return 50000;
+		case 3: return 37500;
+		case 4: return 30000;
+		case 5: return 25000;
+		case 6: return 21500;
+		case 7: return 18500;
+		default: return 18500;
+		}
+	}
+
+	void
+		QbbNetDevice::CheckandSendFb(uint32_t inDev, Ipv4Address source, uint32_t qIndex, uint32_t port, uint64_t ts, uint32_t qlen, uint32_t qvar)
+	{
+		if (m_node->GetNodeType() == 0)
+			return;
+		if (!m_qbbEnabled)
+			return;
+		//create a feedback packet
+		Ptr<Packet> p = Create<Packet>(0);
+
+		//prepare Fb header
+		FbHeader fb(qIndex, port, ts, qlen, qvar);
+		p->AddHeader(fb);
+		//printf("Time=%d, Send an ASM Fb qIndex=%d udpport=%d ts=%d qlen=%d qvar=%d\n", \
+							Simulator::Now().GetMicroSeconds(), fb.GetQIndex(), fb.GetFId(), fb.GetTs(), fb.GetQLen(), fb.GetQVar());
+
+// Prepare IPv4 header
+		Ipv4Header ipv4h;
+		ipv4h.SetDestination(source);
+		Ipv4Address myAddr = m_node->GetObject<Ipv4>()->GetAddress(m_ifIndex, 0).GetLocal();
+		ipv4h.SetSource(myAddr);
+		ipv4h.SetProtocol(0xFF); // QCN FB
+		ipv4h.SetTtl(64);
+		ipv4h.SetPayloadSize(p->GetSize());
+		ipv4h.SetIdentification(UniformVariable(0, 65536).GetValue());
+		p->AddHeader(ipv4h);
+
+		Ptr<NetDevice> device = m_node->GetObject<Ipv4>()->GetNetDevice(inDev);
+		device->Send(p, source, 0x0800);
+		//printf("send ok\n");
+	}
+
+	void
+		QbbNetDevice::rpr_timer_expired(uint32_t findex, uint32_t hop)
+	{
+		m_rpTimeStage[findex][hop]++;
+		rpr_self_increase(findex, hop);
+
+		Simulator::Cancel(m_rptimer[findex][hop]);
+		if (m_rpTimeStage[findex][hop] < m_rpgThreshold)
+			m_rpWhile[findex][hop] = rng.GetValue(0.85, 1.15) * m_rpgTimeReset;
+		else
+			m_rpWhile[findex][hop] = rng.GetValue(0.85, 1.15) * m_rpgTimeReset / 2;
+		m_rptimer[findex][hop] = Simulator::Schedule(MicroSeconds(m_rpWhile[findex][hop]), &QbbNetDevice::rpr_timer_expired, this, findex, hop);
+	}
+
+	void QbbNetDevice::rpr_self_increase(uint32_t findex, uint32_t hop)
+	{
+		uint32_t to_count = std::min(m_rpByteStage[findex][hop], m_rpTimeStage[findex][hop]);
+		DataRate Ri = 0;
+		if (m_rpByteStage[findex][hop] > m_rpgThreshold || m_rpTimeStage[findex][hop] > m_rpgThreshold)
+		{
+			if (m_rpByteStage[findex][hop] > m_rpgThreshold && m_rpTimeStage[findex][hop] > m_rpgThreshold)
+				Ri = m_rhai * (to_count - m_rpgThreshold);
+			else
+				Ri = m_rai;
+		}
+		AdjustRates(findex, hop, Ri);
 	}
 
 } // namespace ns3
